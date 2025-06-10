@@ -1,2 +1,8 @@
 flask
 requests
+pydub
+edge-tts
+speechrecognition
+pandas
+yfinance
+requests-toolbelt
