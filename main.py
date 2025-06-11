@@ -12,7 +12,7 @@ USERNAME = "0733181201"
 PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
 
-@app.route("/api-handler", methods=["GET"])
+@app.route("/api-handler", methods=["POST"])
 def handle_api():
     # שליפת פרמטרים
     wav_path = request.args.get("stockname")
