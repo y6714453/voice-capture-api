@@ -8,7 +8,7 @@ import speech_recognition as sr
 import yfinance as yf
 import time
 from edge_tts import Communicate
-from pydub import AudioSegment
+import asyncio
 
 app = Flask(__name__)
 
@@ -24,51 +24,71 @@ def handle_api():
     phone = request.args.get("ApiPhone")
     print(f"📥 קיבלנו בקשה ממשתמש: {phone}")
 
-    if not wav_path:
-        return "ERROR"
+    if not wav_path or not phone:
+        print("❌ חסר stockname או ApiPhone בבקשה")
+        return "בעיה זמנית"
 
-    # יצירת תיקיות אם לא קיימות
+    # יצירת תיקיות
     os.makedirs("recordings", exist_ok=True)
     os.makedirs("output", exist_ok=True)
 
-    # שם הקובץ לפי חמש ספרות אחרונות
+    # שם קובץ ייחודי לפי חמש ספרות אחרונות
     last_digits = phone[-5:]
     raw_path = f"recordings/{last_digits}.raw"
     fixed_path = f"recordings/{last_digits}_fixed.wav"
     result_path = f"output/{last_digits}.wav"
 
-    # הורדת ההקלטה מימות
-    response = requests.get("https://www.call2all.co.il/ym/api/DownloadFile", params={
-        "token": TOKEN,
-        "path": wav_path
-    })
+    # הורדת הקובץ מימות
+    try:
+        response = requests.get("https://www.call2all.co.il/ym/api/DownloadFile", params={
+            "token": TOKEN,
+            "path": wav_path
+        })
+        if response.status_code != 200:
+            print("❌ שגיאה בהורדת ההקלטה מימות")
+            return "בעיה זמנית"
 
-    if response.status_code != 200:
-        return "ERROR"
+        with open(raw_path, "wb") as f:
+            f.write(response.content)
+        print(f"✅ נשמר הקובץ הגולמי: {raw_path}")
+    except Exception as e:
+        print(f"❌ שגיאה בהורדה: {e}")
+        return "בעיה זמנית"
 
-    with open(raw_path, "wb") as f:
-        f.write(response.content)
+    # המרה ל-wav
+    try:
+        result = subprocess.run([
+            "./bin/ffmpeg", "-y",
+            "-i", raw_path,
+            "-ar", "16000",
+            "-ac", "1",
+            "-acodec", "pcm_s16le",
+            fixed_path
+        ], capture_output=True)
 
-    # המרת ההקלטה לפורמט קריא
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-i", raw_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-acodec", "pcm_s16le",
-        fixed_path
-    ])
+        print("🛠️ FFmpeg Output:")
+        print(result.stdout.decode())
+        print(result.stderr.decode())
+
+        if not os.path.exists(fixed_path):
+            print("❌ קובץ WAV לא נוצר")
+            return "בעיה זמנית"
+        else:
+            print(f"✅ נוצר קובץ WAV תקני: {fixed_path}")
+    except Exception as e:
+        print(f"❌ שגיאה בהמרת ffmpeg: {e}")
+        return "בעיה זמנית"
 
     # זיהוי דיבור
-    recognizer = sr.Recognizer()
     try:
+        recognizer = sr.Recognizer()
         with sr.AudioFile(fixed_path) as source:
             audio = recognizer.record(source)
             text = recognizer.recognize_google(audio, language="he-IL")
-    except:
+        print(f"🔎 זוהה טקסט: {text}")
+    except Exception as e:
+        print(f"❌ שגיאה בזיהוי קולי: {e}")
         return "בעיה זמנית"
-
-    print(f"🔎 זוהה טקסט: {text}")
 
     # חיפוש מניה
     try:
@@ -79,16 +99,18 @@ def handle_api():
             raise Exception("אין נתונים")
 
         message = f"מניית {info.get('shortName', text)} נסחרת במחיר של {price} דולר"
-    except:
+    except Exception as e:
+        print(f"⚠️ לא נמצאו נתונים: {e}")
         message = "לא נמצאו נתונים על המניה"
 
-    # המרת טקסט לדיבור ושמירה לקובץ
+    # יצירת קובץ שמע
     try:
         tts = Communicate(text=message, voice="he-IL-HilaNeural")
-        import asyncio
         asyncio.run(tts.save(result_path))
+        print(f"📤 נוצר קובץ שמע: {result_path}")
         return last_digits
-    except:
+    except Exception as e:
+        print(f"❌ שגיאה בהקראת טקסט: {e}")
         return "בעיה זמנית"
 
 if __name__ == "__main__":
