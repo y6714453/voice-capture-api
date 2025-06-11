@@ -60,7 +60,7 @@ def handle_api():
             text = recognizer.recognize_google(audio, language="he-IL")
     except Exception as e:
         print("⚠️ שגיאת תמלול:", e)
-        return "בעיה זמנית"
+        return "001"  # תשובה שתגרום לימות להשמיע 001.wav
 
     print(f"🔎 זוהה טקסט: {text}")
 
@@ -72,10 +72,10 @@ def handle_api():
         if not price:
             raise Exception("אין מחיר")
         name = info.get("shortName", text)
-        return f"מניית {name} נסחרת במחיר של {price} דולר"
+        return "001"  # תשובה שמובילה להשמעת 001.wav
     except Exception as e:
         print("⚠️ שגיאה בחיפוש מניה:", e)
-        return "לא נמצאו נתונים על המניה"
+        return "001"  # גם בשגיאה נשמיע את אותו קובץ
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
