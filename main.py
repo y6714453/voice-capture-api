@@ -20,97 +20,83 @@ TOKEN = f"{USERNAME}:{PASSWORD}"
 @app.route("/api-handler", methods=["GET"])
 def handle_api():
     # קבלת פרטי הבקשה
-    wav_path = request.args.get("stockname")
+    wav_path = request.args.get("stockname")  # לדוגמה: /9/006.wav
     phone = request.args.get("ApiPhone")
     print(f"📥 קיבלנו בקשה ממשתמש: {phone}")
 
     if not wav_path or not phone:
-        print("❌ חסר stockname או ApiPhone בבקשה")
+        print("❌ חסר פרמטר stockname או ApiPhone")
         return "בעיה זמנית"
 
-    # יצירת תיקיות
+    # יצירת נתיב מלא לקובץ בי־ימות
+    full_path = "ivr2:" + wav_path
+
+    # יצירת תיקיות אם לא קיימות
     os.makedirs("recordings", exist_ok=True)
     os.makedirs("output", exist_ok=True)
 
-    # שם קובץ ייחודי לפי חמש ספרות אחרונות
+    # שמות קבצים לפי חמש ספרות אחרונות
     last_digits = phone[-5:]
     raw_path = f"recordings/{last_digits}.raw"
     fixed_path = f"recordings/{last_digits}_fixed.wav"
     result_path = f"output/{last_digits}.wav"
 
-    # הורדת הקובץ מימות
-    try:
-        response = requests.get("https://www.call2all.co.il/ym/api/DownloadFile", params={
-            "token": TOKEN,
-            "path": wav_path
-        })
-        if response.status_code != 200:
-            print("❌ שגיאה בהורדת ההקלטה מימות")
-            return "בעיה זמנית"
+    # הורדת הקלטה
+    response = requests.get("https://www.call2all.co.il/ym/api/DownloadFile", params={
+        "token": TOKEN,
+        "path": full_path
+    })
 
-        with open(raw_path, "wb") as f:
-            f.write(response.content)
-        print(f"✅ נשמר הקובץ הגולמי: {raw_path}")
-    except Exception as e:
-        print(f"❌ שגיאה בהורדה: {e}")
+    if response.status_code != 200 or not response.content:
+        print("❌ שגיאה בהורדת ההקלטה מימות")
         return "בעיה זמנית"
 
-    # המרה ל-wav
-    try:
-        result = subprocess.run([
-            "./bin/ffmpeg", "-y",
-            "-i", raw_path,
-            "-ar", "16000",
-            "-ac", "1",
-            "-acodec", "pcm_s16le",
-            fixed_path
-        ], capture_output=True)
+    with open(raw_path, "wb") as f:
+        f.write(response.content)
 
-        print("🛠️ FFmpeg Output:")
-        print(result.stdout.decode())
-        print(result.stderr.decode())
-
-        if not os.path.exists(fixed_path):
-            print("❌ קובץ WAV לא נוצר")
-            return "בעיה זמנית"
-        else:
-            print(f"✅ נוצר קובץ WAV תקני: {fixed_path}")
-    except Exception as e:
-        print(f"❌ שגיאה בהמרת ffmpeg: {e}")
-        return "בעיה זמנית"
+    # המרה ל-WAV תקני
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", raw_path,
+        "-ar", "16000",
+        "-ac", "1",
+        "-acodec", "pcm_s16le",
+        fixed_path
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # זיהוי דיבור
+    recognizer = sr.Recognizer()
     try:
-        recognizer = sr.Recognizer()
         with sr.AudioFile(fixed_path) as source:
             audio = recognizer.record(source)
             text = recognizer.recognize_google(audio, language="he-IL")
-        print(f"🔎 זוהה טקסט: {text}")
+            print(f"🔎 זוהה טקסט: {text}")
     except Exception as e:
-        print(f"❌ שגיאה בזיהוי קולי: {e}")
+        print(f"❌ שגיאה בזיהוי דיבור: {e}")
         return "בעיה זמנית"
 
     # חיפוש מניה
     try:
-        search = yf.Ticker(text)
-        info = search.info
+        ticker = yf.Ticker(text)
+        info = ticker.info
         price = info.get("regularMarketPrice")
         if not price:
-            raise Exception("אין נתונים")
+            raise Exception("אין מחיר")
 
-        message = f"מניית {info.get('shortName', text)} נסחרת במחיר של {price} דולר"
+        name = info.get("shortName", text)
+        message = f"מניית {name} נסחרת במחיר של {price} דולר"
     except Exception as e:
-        print(f"⚠️ לא נמצאו נתונים: {e}")
+        print(f"⚠️ שגיאה בשליפת מידע מהמניה: {e}")
         message = "לא נמצאו נתונים על המניה"
 
     # יצירת קובץ שמע
     try:
         tts = Communicate(text=message, voice="he-IL-HilaNeural")
         asyncio.run(tts.save(result_path))
-        print(f"📤 נוצר קובץ שמע: {result_path}")
-        return last_digits
+        print(f"✅ נוצר קובץ שמע: {result_path}")
+        return last_digits  # המערכת תנגן אותו לפי שם הקובץ
     except Exception as e:
-        print(f"❌ שגיאה בהקראת טקסט: {e}")
+        print(f"❌ שגיאה ביצירת קובץ שמע: {e}")
         return "בעיה זמנית"
 
 if __name__ == "__main__":
