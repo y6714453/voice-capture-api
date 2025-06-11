@@ -1,7 +1,7 @@
 flask
 requests
-pydub
 edge-tts
+pydub
 speechrecognition
 pandas
 yfinance
