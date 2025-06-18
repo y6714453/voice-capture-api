@@ -17,9 +17,7 @@ def normalize(text):
     return re.sub(r'[^א-תa-zA-Z0-9]', '', text).lower()
 
 def load_stock_list(path="hebrew_stocks.csv"):
-    print("📄 טוען קובץ hebrew_stocks.csv...")
     df = pd.read_csv(path)
-    print(f"✅ נטענו {len(df)} שורות מהמילון")
     return {
         normalize(row['hebrew_name']): {
             'display_name': row['display_name'],
@@ -41,70 +39,66 @@ def get_best_match(query, stock_dict):
     return matches[0] if matches else None
 
 def get_stock_data(ticker):
-    print(f"📊 טוען נתונים עבור הסימבול: {ticker}")
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
         if hist.empty or len(hist) < 2:
-            print("⚠️ לא מספיק נתונים היסטוריים")
             return None
         current = hist['Close'].iloc[-1]
         prev = hist['Close'].iloc[-2]
-        week = hist['Close'].iloc[-6] if len(hist) > 6 else prev
-        mo3 = hist['Close'].iloc[-66] if len(hist) > 66 else prev
-        year = hist['Close'].iloc[0]
-        high = hist['Close'].max()
-        print("✅ נתונים היסטוריים נשלפו בהצלחה")
+        change_day = round((current - prev) / prev * 100, 2)
         return {
             'current': round(current, 2),
-            'day': round((current - prev) / prev * 100, 2),
-            'week': round((current - week) / week * 100, 2),
-            'mo3': round((current - mo3) / mo3 * 100, 2),
-            'year': round((current - year) / year * 100, 2),
-            'from_high': round((current - high) / high * 100, 2)
+            'day': change_day
         }
-    except Exception as e:
-        print(f"❌ שגיאה בשליפת נתונים: {e}")
+    except:
         return None
 
-def format_text(stock_info, data):
+def safe_text(text):
+    return text.replace("&", " ו").replace('"', "").replace("'", "")
+
+def format_short_text(stock_info, data):
     name = stock_info['display_name']
-    ticker = stock_info['ticker']
     typ = stock_info['type']
-    currency = "שקלים" if ticker.endswith(".TA") else "דולר"
+    current = data['current']
+    change = data['day']
+    direction = "עלייה" if change > 0 else "ירידה"
+    change = abs(change)
 
-    d = f"מתחילת היום נרשמה {'עלייה' if data['day'] > 0 else 'ירידה'} של {abs(data['day'])} אחוז."
-    w = f"מתחילת השבוע נרשמה {'עלייה' if data['week'] > 0 else 'ירידה'} של {abs(data['week'])} אחוז."
-    m = f"בשלושת החודשים האחרונים נרשמה {'עלייה' if data['mo3'] > 0 else 'ירידה'} של {abs(data['mo3'])} אחוז."
-    y = f"מתחילת השנה נרשמה {'עלייה' if data['year'] > 0 else 'ירידה'} של {abs(data['year'])} אחוז."
-    h = f"המחיר הנוכחי רחוק מהשיא ב־{abs(data['from_high'])} אחוז."
+    if "מדד" in typ:
+        text = f"נמצא מדד בשם {name}. המדד עומד על {current} נקודות. מתחילת היום נרשמה {direction} של {change} אחוז."
+    elif "מניה" in typ:
+        text = f"נמצאה מניה בשם {name}. המניה שווה {current} דולר. מתחילת היום נרשמה {direction} של {change} אחוז."
+    elif "קריפטו" in typ:
+        text = f"נמצא מטבע בשם {name}. שווי המטבע {current} דולר. מתחילת היום נרשמה {direction} של {change} אחוז."
+    else:
+        text = f"נמצא נייר ערך בשם {name}. השווי הוא {current}. נרשמה {direction} של {change} אחוז."
 
-    text = f"{name}. {d} {w} {m} {y} {h}"
-    print("📢 טקסט מוכן להקראה:")
+    print("📢 תגובת טקסט לימות:")
     print(text)
-    return text
+    return safe_text(text)
 
 @app.route("/api-handler", methods=["GET"])
 def handle_api():
     print("\n📞 התקבלה בקשת API מימות")
     path = request.args.get("stockname")
     if not path:
-        print("❌ לא נשלח stockname מהבקשה")
-        return "לא התקבל נתיב הקלטה"
+        print("❌ stockname חסר")
+        return "לא התקבל קובץ מהמערכת"
 
-    print(f"📁 נתיב הקלטה שהתקבל: {path}")
+    print(f"📁 הקובץ שהתקבל: {path}")
 
     url = "https://www.call2all.co.il/ym/api/DownloadFile"
     params = {"token": TOKEN, "path": f"ivr2:{path}"}
     r = requests.get(url, params=params)
 
     if r.status_code != 200:
-        print("❌ שגיאה בהורדת הקובץ מימות")
-        return "שגיאה בהורדת הקובץ"
+        print("❌ שגיאה בהורדת הקובץ")
+        return "לא התקבלה הקלטה תקינה"
 
     with open("temp.wav", "wb") as f:
         f.write(r.content)
-    print("✅ הקובץ נשמר בהצלחה כ־temp.wav")
+    print("✅ נשמר קובץ temp.wav")
 
     try:
         recognizer = sr.Recognizer()
@@ -123,9 +117,9 @@ def handle_api():
     stock_info = stock_dict[match]
     data = get_stock_data(stock_info['ticker'])
     if not data:
-        return "לא נמצאו נתונים עדכניים"
+        return "לא נמצאו נתונים למדד"
 
-    return format_text(stock_info, data)
+    return format_short_text(stock_info, data)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
