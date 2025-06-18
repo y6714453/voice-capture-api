@@ -9,15 +9,17 @@ import re
 
 app = Flask(__name__)
 
-# הגדרת טוקן לימות המשיח
+# פרטי גישה לימות
 USERNAME = "0733181201"
 PASSWORD = "6714453"
 TOKEN = f"{USERNAME}:{PASSWORD}"
 
-# טוען את הרשימה מהמילון
+# פונקציית ניקוי אחידה
 def normalize(text):
-    return re.sub(r'[^א-תa-zA-Z0-9 ]', '', text).lower().strip()
+    # הסרה של כל תו שאינו אות/מספר, המרה לאותיות קטנות
+    return re.sub(r'[^א-תa-zA-Z0-9]', '', text).lower()
 
+# טעינת קובץ המניות
 def load_stock_list(path="hebrew_stocks.csv"):
     df = pd.read_csv(path)
     return {
@@ -31,11 +33,13 @@ def load_stock_list(path="hebrew_stocks.csv"):
 
 stock_dict = load_stock_list()
 
+# התאמה של הדיבור לשם במילון
 def get_best_match(query, stock_dict):
     norm_query = normalize(query)
     matches = get_close_matches(norm_query, stock_dict.keys(), n=1, cutoff=0.6)
     return matches[0] if matches else None
 
+# שליפת נתונים מ-Yahoo
 def get_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -59,6 +63,7 @@ def get_stock_data(ticker):
     except:
         return None
 
+# ניסוח טקסט מוכן
 def format_text(stock_info, data):
     name = stock_info['display_name']
     ticker = stock_info['ticker']
@@ -79,27 +84,23 @@ def format_text(stock_info, data):
         return f"נמצא מטבע בשם {name}. שווי נוכחי של {data['current']} דולר. {d} {w} {m} {y} {h}"
     return f"נמצא נייר ערך בשם {name}. מחיר נוכחי: {data['current']} {currency}."
 
-@app.route("/api-handler", methods=["POST"])
+# נקודת הכניסה מימות
+@app.route("/api-handler", methods=["GET"])
 def handle_api():
-    # שליפת ההקלטה מימות
     path = request.args.get("stockname")
     if not path:
-        return "לא נשלח קובץ תקין"
+        return "לא התקבל נתיב הקלטה"
 
     url = "https://www.call2all.co.il/ym/api/DownloadFile"
-    params = {
-        "token": TOKEN,
-        "path": f"ivr2:{path}"
-    }
-
+    params = {"token": TOKEN, "path": f"ivr2:{path}"}
     r = requests.get(url, params=params)
+
     if r.status_code != 200:
-        return "הקובץ לא התקבל"
+        return "שגיאה בהורדת הקובץ"
 
     with open("temp.wav", "wb") as f:
         f.write(r.content)
 
-    # תמלול
     try:
         r = sr.Recognizer()
         with sr.AudioFile("temp.wav") as source:
