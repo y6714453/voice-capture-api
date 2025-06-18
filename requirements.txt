@@ -1,8 +1,5 @@
-flask
+Flask
 requests
-edge-tts
-pydub
-speechrecognition
+SpeechRecognition
 pandas
 yfinance
-requests-toolbelt
